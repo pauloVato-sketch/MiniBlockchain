@@ -160,9 +160,13 @@ func readData(rw *bufio.ReadWriter) {
 		if err != nil {
 			log.Fatal(err)
 		}
+		// If the channel is closed or we get an EOF, return
+		if err == io.EOF {
+			return
+		}
 		// Se o buffer estiver vazio, não processa.
 		if str == "" {
-			return
+			continue
 		}
 		// Se o buffer não estiver vazio...
 		if str != "\n" {
@@ -243,6 +247,7 @@ func writeData(rw *bufio.ReadWriter) {
 		if err != nil {
 			log.Fatal(err)
 		}
+
 		// Cria bloco com o valor digitado.
 		novoBloco := geraBloco(Blockchain[len(Blockchain)-1], value)
 
