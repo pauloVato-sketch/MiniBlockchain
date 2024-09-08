@@ -1,0 +1,2 @@
+// Comece executando este código na primeira máquina.
+go run main.go -l 10000 -secio

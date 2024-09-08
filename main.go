@@ -2,22 +2,30 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"log"
 	mrand "math/rand"
+	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
+	spew "github.com/davecgh/go-spew/spew"
+	golog "github.com/ipfs/go-log"
 	libp2p "github.com/libp2p/go-libp2p"
 	crypto "github.com/libp2p/go-libp2p/core/crypto"
 	host "github.com/libp2p/go-libp2p/core/host"
 	net "github.com/libp2p/go-libp2p/core/network"
+	peer "github.com/libp2p/go-libp2p/core/peer"
+	pstore "github.com/libp2p/go-libp2p/core/peerstore"
 	ma "github.com/multiformats/go-multiaddr"
 )
 
@@ -186,6 +194,162 @@ func readData(rw *bufio.ReadWriter) {
 	}
 }
 
-func writeData(){
+// Função com intuito de avisar aos nós conectados se adicionarmos um bloco na nossa chain para que seja aceito.
+func writeData(rw *bufio.ReadWriter) {
+	// Cria uma corrotina*
+	go func() {
+		for {
+			// Aguarda 5 segundos
+			time.Sleep(5 * time.Second)
+			// Trava para realizar a operação de extração da chain
+			mutex.Lock()
+			bytes, err := json.Marshal(Blockchain)
+			// Checa para erro
+			if err != nil {
+				log.Println(err)
+			}
+			// Libera trava.
+			mutex.Unlock()
 
+			// Trava para escrita.
+			mutex.Lock()
+			// Escreve a string (dados da blockchain) no buffer.
+			rw.WriteString(fmt.Sprintf("%s\n", string(bytes)))
+			// Limpa o buffer
+			rw.Flush()
+			// Libera o recurso.
+			mutex.Unlock()
+		}
+		// * A cada 5 segundos, extrai e escreve a chain no buffer.
+	}()
+
+	// Cria buffer p/ escrita de um bloco.
+	stdReader := bufio.NewReader(os.Stdin)
+
+	for {
+		fmt.Print("> ")
+		// Lê buffer até a quebra de linha.
+		sendData, err := stdReader.ReadString('\n')
+		// Checa para erro
+		if err != nil {
+			log.Fatal(err)
+		}
+		// Substitui a quebra de linha com vazio.
+		sendData = strings.Replace(sendData, "\r\n", "", -1)
+		log.Printf("%s\n", sendData)
+		// Extrai valor do buffer convertendo para float.
+		value, err := strconv.ParseFloat(sendData, 64)
+		// Checa para erro
+		if err != nil {
+			log.Fatal(err)
+		}
+		// Cria bloco com o valor digitado.
+		novoBloco := geraBloco(Blockchain[len(Blockchain)-1], value)
+
+		// Se bloco for valido, adiciona ele à blockchain.
+		if blocoEhValido(novoBloco, Blockchain[len(Blockchain)-1]) {
+			mutex.Lock()
+			Blockchain = append(Blockchain, novoBloco)
+			mutex.Unlock()
+		}
+
+		// Coloca blockchain no formato JSON
+		bytes, err := json.Marshal(Blockchain)
+		// Checa para erro
+		if err != nil {
+			log.Println(err)
+		}
+		// Printa a chain de forma interpretavel
+		spew.Dump(Blockchain)
+
+		// Pega a trava, escreve no buffer a nova blockchain em json, limpa buffer e libera o recurso.
+		mutex.Lock()
+		rw.WriteString(fmt.Sprintf("%s\n", string(bytes)))
+		rw.Flush()
+		mutex.Unlock()
+
+	}
+}
+
+func main() {
+	t := time.Now()
+	// Cria e insere bloco base na chain.
+	genesisBlock := Block{}
+	genesisBlock = Block{0, t.String(), 0, calculaHash(genesisBlock), ""}
+
+	Blockchain = append(Blockchain, genesisBlock)
+
+	golog.SetAllLoggers(golog.LevelInfo)
+	// Define flags
+	/*
+		listenF: Abre a porta na qual queremos receber as conexões (agindo como host).
+		target: Especifica o endereço do alvo no qual queremos nos conectar (agindo como peer).
+		secio: Opção de ter ou não segurança nas streams.
+		seed: seed para aleatoriedade.
+	*/
+	listenF := flag.Int("l", 0, "aguarda por futuras conexões")
+	target := flag.String("d", "", "nó alvo para \"discar\"")
+	secio := flag.Bool("secio", false, "habilitar secio")
+	seed := flag.Int64("seed", 0, "define seed aleatória para geração de IDs")
+	flag.Parse()
+	if *listenF == 0 {
+		log.Fatal("Digite a porta para bind com -l")
+	}
+
+	// Cria o host para ouvir o multi endereço
+	host, err := makeBasicHost(*listenF, *secio, *seed)
+	if err != nil {
+		log.Fatal(err)
+	}
+	// Se o target está vazio, estamos agindo apenas como host
+	if *target == "" {
+		log.Println("Aguardando por conexões...")
+
+		// Coloca um handler no host A. /p2p/1.0.0 é um nome de protocolo definido pelo usuário.
+		host.SetStreamHandler("/p2p/1.0.0", handleStream)
+
+		select {} // Fica aqui para sempre ?
+	} else {
+		host.SetStreamHandler("/p2p/1.0.0", handleStream)
+
+		// Extrai IP do nó alvo
+		ipfsAddr, err := ma.NewMultiaddr(*target)
+		if err != nil {
+			log.Fatalln(err)
+		}
+
+		pid, err := ipfsAddr.ValueForProtocol(ma.P_IPFS)
+		if err != nil {
+			log.Fatalln(err)
+		}
+
+		peerId, err := peer.Decode(pid)
+		log.Println(fmt.Printf("\x1b[32m%s\x1b[0m> ", (peerId)))
+		if err != nil {
+			log.Fatalln(err)
+		}
+		// Desencapsula a parte /ipfs/<peerID> do alvo
+		// /ip4/<a.b.c.d>/ipfs/<peer> vira /ip4/<a.b.c.d>
+
+		endPeerAlvo, _ := ma.NewMultiaddr(
+			fmt.Sprintf("/ipfs/%s", peer.ID.String(peerId)))
+		endAlvo := ipfsAddr.Decapsulate(endPeerAlvo)
+
+		// Temos um id de peer e um endereço alvo, então adicionamos para a peerstore para a lib entender como alcançá-lo.
+		host.Peerstore().AddAddr(peerId, endAlvo, pstore.PermanentAddrTTL)
+
+		log.Println("Abrindo stream...")
+		// Cria stream do host B para o host A
+		s, err := host.NewStream(context.Background(), peerId, "/p2p/1.0.0")
+		if err != nil {
+			log.Fatalln(err)
+		}
+		// Cria uma stream movida à buffer para que escritas e leituras sejam não bloqueantes.
+		rw := bufio.NewReadWriter(bufio.NewReader(s), bufio.NewWriter(s))
+
+		go writeData(rw)
+		go readData(rw)
+
+		select {}
+	}
 }
