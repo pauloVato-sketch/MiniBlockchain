@@ -14,9 +14,11 @@ import (
 	mrand "math/rand"
 	"net"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	spew "github.com/davecgh/go-spew/spew"
@@ -290,6 +292,7 @@ func writeData(rw *bufio.ReadWriter) {
 }
 
 func main() {
+	ctx, cancel := context.WithCancel(context.Background())
 	t := time.Now()
 	// Cria e insere bloco base na chain.
 	genesisBlock := Block{}
@@ -310,6 +313,7 @@ func main() {
 	secio := flag.Bool("secio", false, "habilitar secio")
 	seed := flag.Int64("seed", 0, "define seed aleatória para geração de IDs")
 	flag.Parse()
+
 	if *listenF == 0 {
 		log.Fatal("Digite a porta para bind com -l")
 	}
@@ -358,7 +362,7 @@ func main() {
 
 		log.Println("Abrindo stream...")
 		// Cria stream do host B para o host A
-		s, err := host.NewStream(context.Background(), peerId, "/p2p/1.0.0")
+		s, err := host.NewStream(ctx, peerId, "/p2p/1.0.0")
 		if err != nil {
 			log.Fatalln(err)
 		}
@@ -368,6 +372,22 @@ func main() {
 		go writeData(rw)
 		go readData(rw)
 
-		select {}
+		run(host, cancel)
 	}
+}
+
+func run(h host.Host, cancel func()) {
+	c := make(chan os.Signal, 1)
+
+	signal.Notify(c, os.Interrupt, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
+	<-c
+
+	fmt.Printf("\rExiting...\n")
+
+	cancel()
+
+	if err := h.Close(); err != nil {
+		panic(err)
+	}
+	os.Exit(0)
 }
