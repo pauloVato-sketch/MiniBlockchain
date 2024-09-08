@@ -12,6 +12,7 @@ import (
 	"io"
 	"log"
 	mrand "math/rand"
+	"net"
 	"os"
 	"strconv"
 	"strings"
@@ -23,7 +24,7 @@ import (
 	libp2p "github.com/libp2p/go-libp2p"
 	crypto "github.com/libp2p/go-libp2p/core/crypto"
 	host "github.com/libp2p/go-libp2p/core/host"
-	net "github.com/libp2p/go-libp2p/core/network"
+	netp2p "github.com/libp2p/go-libp2p/core/network"
 	peer "github.com/libp2p/go-libp2p/core/peer"
 	pstore "github.com/libp2p/go-libp2p/core/peerstore"
 	ma "github.com/multiformats/go-multiaddr"
@@ -83,6 +84,18 @@ func geraBloco(blocoVelho Block, value float64) Block {
 	return blocoNovo
 }
 
+// Get preferred outbound ip of this machine
+func GetOutboundIP() net.IP {
+	conn, err := net.Dial("udp", "8.8.8.8:80")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer conn.Close()
+
+	localAddr := conn.LocalAddr().(*net.UDPAddr)
+
+	return localAddr.IP
+}
 func makeBasicHost(porta int, secio bool, randseed int64) (host.Host, error) {
 	// Se a seed for zero, use aletoriedade do Reader: uses the ProcessPrng API no Windows.
 	// Senão, use aleatoriedade determinística para gerar sempre as mesmas chaves em runs diferentes.
@@ -102,7 +115,7 @@ func makeBasicHost(porta int, secio bool, randseed int64) (host.Host, error) {
 
 	// Cria opções de configuração para o host: IP e chave privada gerada acima.
 	opts := []libp2p.Option{
-		libp2p.ListenAddrStrings(fmt.Sprintf("/ip4/127.0.0.1/tcp/%d", porta)),
+		libp2p.ListenAddrStrings(fmt.Sprintf("/ip4/%s/tcp/%d", GetOutboundIP(), porta)),
 		libp2p.Identity(priv),
 	}
 
@@ -137,7 +150,7 @@ func makeBasicHost(porta int, secio bool, randseed int64) (host.Host, error) {
 	return basicHost, nil
 }
 
-func handleStream(s net.Stream) {
+func handleStream(s netp2p.Stream) {
 	log.Println("Chegou uma stream")
 
 	// Cria buffer para escrita não bloqueante
