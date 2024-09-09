@@ -153,6 +153,7 @@ func makeBasicHost(porta int, secio bool, randseed int64) (host.Host, error) {
 }
 
 func handleStream(s netp2p.Stream) {
+
 	log.Println("Chegou uma stream")
 
 	// Cria buffer para escrita não bloqueante
@@ -160,6 +161,7 @@ func handleStream(s netp2p.Stream) {
 
 	go readData(rw)
 	go writeData(rw)
+
 	// Stream s ficará aberta até seu fechamento.
 }
 
@@ -172,12 +174,9 @@ func readData(rw *bufio.ReadWriter) {
 		// Lemos a entrada do buffer que vem de outro nó.
 		str, err := rw.ReadString('\n')
 		// Checamos para erro.
-		if err != nil {
-			log.Fatal(err)
-		}
-		// If the channel is closed or we get an EOF, return
-		if err == io.EOF {
-			return
+		if err != nil && err == io.EOF {
+			fmt.Printf("\x1b[32m%s\x1b[0m>", err)
+			log.Default().Fatalln(err)
 		}
 		// Se o buffer estiver vazio, não processa.
 		if str == "" {
@@ -211,6 +210,7 @@ func readData(rw *bufio.ReadWriter) {
 			mutex.Unlock()
 		}
 	}
+	//select {}
 }
 
 // Função com intuito de avisar aos nós conectados se adicionarmos um bloco na nossa chain para que seja aceito.
@@ -251,7 +251,7 @@ func writeData(rw *bufio.ReadWriter) {
 		sendData, err := stdReader.ReadString('\n')
 		// Checa para erro
 		if err != nil {
-			log.Fatal(err)
+			log.Println(err)
 		}
 		// Substitui a quebra de linha com vazio.
 		sendData = strings.Replace(sendData, "\r\n", "", -1)
@@ -260,7 +260,7 @@ func writeData(rw *bufio.ReadWriter) {
 		value, err := strconv.ParseFloat(sendData, 64)
 		// Checa para erro
 		if err != nil {
-			log.Fatal(err)
+			log.Println(err)
 		}
 
 		// Cria bloco com o valor digitado.
@@ -320,9 +320,11 @@ func main() {
 
 	// Cria o host para ouvir o multi endereço
 	host, err := makeBasicHost(*listenF, *secio, *seed)
+
 	if err != nil {
 		log.Fatal(err)
 	}
+	defer host.Close()
 	// Se o target está vazio, estamos agindo apenas como host
 	if *target == "" {
 		log.Println("Aguardando por conexões...")
@@ -337,18 +339,18 @@ func main() {
 		// Extrai IP do nó alvo
 		ipfsAddr, err := ma.NewMultiaddr(*target)
 		if err != nil {
-			log.Fatalln(err)
+			log.Println(err)
 		}
 
 		pid, err := ipfsAddr.ValueForProtocol(ma.P_IPFS)
 		if err != nil {
-			log.Fatalln(err)
+			log.Println(err)
 		}
 
 		peerId, err := peer.Decode(pid)
 		log.Println(fmt.Printf("\x1b[32m%s\x1b[0m> ", (peerId)))
 		if err != nil {
-			log.Fatalln(err)
+			log.Println(err)
 		}
 		// Desencapsula a parte /ipfs/<peerID> do alvo
 		// /ip4/<a.b.c.d>/ipfs/<peer> vira /ip4/<a.b.c.d>
@@ -364,13 +366,13 @@ func main() {
 		// Cria stream do host B para o host A
 		s, err := host.NewStream(ctx, peerId, "/p2p/1.0.0")
 		if err != nil {
-			log.Fatalln(err)
+			log.Println(err)
 		}
 		// Cria uma stream movida à buffer para que escritas e leituras sejam não bloqueantes.
 		rw := bufio.NewReadWriter(bufio.NewReader(s), bufio.NewWriter(s))
 
-		go writeData(rw)
 		go readData(rw)
+		go writeData(rw)
 
 		run(host, cancel)
 	}
