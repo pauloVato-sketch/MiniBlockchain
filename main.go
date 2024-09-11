@@ -144,9 +144,9 @@ func makeBasicHost(porta int, secio bool, randseed int64) (host.Host, error) {
 
 	// Se houver segurança, adiciona a tag no comando a ser executado em outro terminal.
 	if secio {
-		log.Printf("Now run \"go run main.go -l %d -d %s -secio\" on a different terminal\n", porta+1, endCompleto)
+		log.Printf("Agora rode \"go run main.go -l %d -d %s -secio\" \n", porta+1, endCompleto)
 	} else {
-		log.Printf("Now run \"go run main.go -l %d -d %s\" on a different terminal\n", porta+1, endCompleto)
+		log.Printf("Agora rode run \"go run main.go -l %d -d %s\" em outro terminal\n", porta+1, endCompleto)
 	}
 
 	return basicHost, nil
