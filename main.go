@@ -254,7 +254,7 @@ func writeData(rw *bufio.ReadWriter) {
 			log.Println(err)
 		}
 		// Substitui a quebra de linha com vazio.
-		sendData = strings.Replace(sendData, "\r\n", "", -1)
+		sendData = strings.TrimRight(sendData, "\r\n")
 		log.Printf("%s\n", sendData)
 		// Extrai valor do buffer convertendo para float.
 		value, err := strconv.ParseFloat(sendData, 64)
